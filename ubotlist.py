@@ -740,17 +740,21 @@ async def autosave_loop():
 
 
 # ============================================================
-# MAIN: JALANKAN BOT
+# ============================================================
+# POST-INIT: Dijalankan setelah bot siap, sebelum polling
 # ============================================================
 
 async def post_init(application):
-    """Print info saat bot siap."""
+    """Mulai autosave background task + print info bot."""
+    # Start autosave sebagai background task
+    asyncio.create_task(autosave_loop())
+
     me = await application.bot.get_me()
     print("=" * 55)
     print(f"  🤖 UBOT LIST - STARTED")
-    print(f"  👤 Bot   : @{me.username}")
-    print(f"  🆔 Bot ID: {me.id}")
-    print(f"  👑 Admin : {ADMIN_IDS}")
+    print(f"  👤 Bot    : @{me.username}")
+    print(f"  🆔 Bot ID : {me.id}")
+    print(f"  👑 Admin  : {ADMIN_IDS}")
     print("=" * 55)
     print("  📌 Perintah tersedia:")
     print("     /menu /on /off /list /rs /rk /total")
@@ -759,10 +763,28 @@ async def post_init(application):
     print("=" * 55)
 
 
-async def run_bot():
-    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+# ============================================================
+# POST-STOP: Dijalankan saat bot dihentikan
+# ============================================================
 
-    # Daftar semua command slash
+async def post_stop(application):
+    """Simpan data sebelum bot mati."""
+    save_data()
+    print("💾 Data tersimpan sebelum shutdown.")
+
+
+# ============================================================
+# MAIN: Jalankan bot dengan run_polling()
+# ============================================================
+
+def main():
+    # Build application
+    builder = Application.builder().token(BOT_TOKEN)
+    builder.post_init(post_init)
+    builder.post_stop(post_stop)
+    application = builder.build()
+
+    # ===== Daftar semua command slash =====
     application.add_handler(CommandHandler("menu", handle_menu))
     application.add_handler(CommandHandler("start", handle_menu))
     application.add_handler(CommandHandler("on", handle_on))
@@ -779,6 +801,35 @@ async def run_bot():
     application.add_handler(CommandHandler("del", handle_del))
     application.add_handler(CommandHandler("cancel", handle_cancel))
     application.add_handler(CommandHandler("alias", handle_alias))
+
+    # Callback tombol inline
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^cmd_"))
+
+    # Pesan teks biasa → cek apakah format bet
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_bet_text)
+    )
+
+    print("=" * 55)
+    print("  🚀 UBOT LIST - STARTING...")
+    print("=" * 55)
+
+    # ===== Jalankan bot (run_polling handle semua lifecycle) =====
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        save_data()
+        print("\n\n👋 Bot dihentikan. Data tersimpan. Sampai jumpa!")
+    except Exception as e:
+        traceback.print_exc()
+        print(f"\n❌ Error: {e}")
 
     # Callback tombol inline
     application.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^cmd_"))
