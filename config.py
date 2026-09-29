@@ -3,7 +3,7 @@
 # ============================================
 
 # Token bot dari @BotFather
-BOT_TOKEN = "8674754399:AAGze0qXiQM6oGMZAxaK4yzgq7r2cS75x0Q"
+BOT_TOKEN = "TOKEN"
 
 # Daftar ID admin (bisa beberapa)
 # Contoh: [123456789, 987654321]
