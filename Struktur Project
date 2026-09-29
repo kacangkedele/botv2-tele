@@ -1,0 +1,6 @@
+ubotlist/
+├── config.py
+├── ubotlist.py
+├── requirements.txt
+├── data.json
+└── README.md
