@@ -14,7 +14,6 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Update,
-    ReplyKeyboardRemove,
 )
 from telegram.ext import (
     Application,
@@ -35,24 +34,22 @@ from config import ADMIN_IDS, BOT_TOKEN, DATA_FILE, AUTOSAVE_INTERVAL
 # ============================================================
 
 def load_data():
-    """Memuat data dari file JSON, jika gagal buat struktur baru."""
     default_data = {
-        "active": {},          # status aktif per chat
-        "perak_mode": {},      # mode perak per chat
-        "bets": {},            # taruhan aktif per chat
-        "aliases": {},         # alias user per chat
-        "history": {},         # riwayat ronde selesai per chat
-        "settings": {},        # pengaturan tambahan
+        "active": {},
+        "perak_mode": {},
+        "bets": {},
+        "aliases": {},
+        "history": {},
+        "settings": {},
     }
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    # Pastikan semua key ada
+                data_loaded = json.load(f)
+                if isinstance(data_loaded, dict):
                     for key, value in default_data.items():
-                        data.setdefault(key, value)
-                    return data
+                        data_loaded.setdefault(key, value)
+                    return data_loaded
         except json.JSONDecodeError as e:
             print(f"[ERROR] JSON rusak: {e}")
         except Exception as e:
@@ -61,7 +58,6 @@ def load_data():
 
 
 def save_data():
-    """Menyimpan data ke file JSON."""
     try:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, default=str, ensure_ascii=False)
@@ -73,7 +69,7 @@ data = load_data()
 
 
 # ============================================================
-# FUNGSI BANTU (HELPERS)
+# FUNGSI BANTU
 # ============================================================
 
 def is_admin(user_id):
@@ -113,12 +109,6 @@ def get_history(chat_id):
 
 
 def parse_bet(text):
-    """
-    Format yang didukung:
-    - K5 / B10  → (K/B, angka)
-    - 5K / 10B  → (K/B, angka) - terbalik
-    - K5.5 / B2.5 - desimal
-    """
     text = text.strip().upper().replace(",", ".")
     m = re.match(r"^([KB])\s*(\d+(?:\.\d+)?)$", text)
     if m:
@@ -144,7 +134,6 @@ def format_amount(amount):
 
 
 def md(text):
-    """Escape markdown special chars."""
     return escape_markdown(str(text), version=2)
 
 
@@ -156,7 +145,6 @@ async def get_display_name(user, chat_id=None):
     last = getattr(user, "last_name", "") or ""
     if last:
         name = f"{name} {last}".strip()
-    # Cek alias custom
     if chat_id:
         aliases = get_aliases(chat_id)
         if uid in aliases and aliases[uid]:
@@ -217,7 +205,7 @@ def create_help_menu():
 # AUTENTIKASI & RESPONSE
 # ============================================================
 
-async def answer_admin_error(update: Update):
+async def answer_admin_error(update):
     if update.callback_query:
         await update.callback_query.answer("❌ Anda bukan admin!", show_alert=True)
         return
@@ -225,7 +213,7 @@ async def answer_admin_error(update: Update):
         await update.effective_message.reply_text("❌ Anda bukan admin!")
 
 
-async def require_admin(update: Update):
+async def require_admin(update):
     user_id = update.effective_user.id if update.effective_user else None
     if user_id is None or not is_admin(user_id):
         await answer_admin_error(update)
@@ -233,14 +221,13 @@ async def require_admin(update: Update):
     return True
 
 
-async def send_or_edit(update: Update, text: str, buttons=None):
+async def send_or_edit(update, text, buttons=None):
     if update.callback_query:
         try:
             await update.callback_query.edit_message_text(
                 text, reply_markup=buttons, parse_mode=ParseMode.MARKDOWN_V2
             )
         except Exception:
-            # Fallback tanpa markdown
             try:
                 await update.callback_query.edit_message_text(text, reply_markup=buttons)
             except Exception as e:
@@ -255,7 +242,7 @@ async def send_or_edit(update: Update, text: str, buttons=None):
 # HANDLER COMMANDS
 # ============================================================
 
-async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_menu(update, context):
     if not await require_admin(update):
         return
     cid = str(update.effective_chat.id)
@@ -273,7 +260,7 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_main_menu())
 
 
-async def handle_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_on(update, context):
     if not await require_admin(update):
         return
     cid = str(update.effective_chat.id)
@@ -294,7 +281,7 @@ async def handle_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_main_menu())
 
 
-async def handle_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_off(update, context):
     if not await require_admin(update):
         return
     cid = str(update.effective_chat.id)
@@ -310,7 +297,7 @@ async def handle_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_main_menu())
 
 
-async def handle_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_list(update, context):
     bets = get_bets(update.effective_chat.id)
     if not bets:
         msg = (
@@ -360,19 +347,17 @@ async def handle_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_list_menu())
 
 
-async def handle_rs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_rs(update, context):
     if not await require_admin(update):
         return
     cid = str(update.effective_chat.id)
     bets = get_bets(cid)
     if bets:
-        # Simpan ke history sebelum reset
         history = get_history(cid)
         history.append({
             "timestamp": datetime.now().isoformat(),
             "bets": bets.copy(),
         })
-        # Batasi history 50 entry terakhir
         if len(history) > 50:
             data["history"][cid] = history[-50:]
     data["bets"][cid] = {}
@@ -388,7 +373,7 @@ async def handle_rs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_main_menu())
 
 
-async def handle_rk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_rk(update, context):
     bets = get_bets(update.effective_chat.id)
     if not bets:
         msg = (
@@ -430,13 +415,11 @@ async def handle_rk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_list_menu())
 
 
-async def handle_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Menampilkan total seluruh ronde yang sudah direset."""
+async def handle_total(update, context):
     cid = str(update.effective_chat.id)
     history = get_history(cid)
     bets = get_bets(cid)
 
-    # Total ronde selesai + ronde berjalan
     k_total_all = sum(
         i["amount"] for h in history for i in h["bets"].values() if i["type"] == "K"
     ) + sum(i["amount"] for i in bets.values() if i["type"] == "K")
@@ -458,7 +441,7 @@ async def handle_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_list_menu())
 
 
-async def handle_perak(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_perak(update, context):
     if not await require_admin(update):
         return
     data["perak_mode"][str(update.effective_chat.id)] = True
@@ -476,7 +459,7 @@ async def handle_perak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_main_menu())
 
 
-async def handle_nonperak(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_nonperak(update, context):
     if not await require_admin(update):
         return
     data["perak_mode"][str(update.effective_chat.id)] = False
@@ -494,7 +477,7 @@ async def handle_nonperak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_main_menu())
 
 
-async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_status(update, context):
     if not await require_admin(update):
         return
     cid = str(update.effective_chat.id)
@@ -514,7 +497,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_or_edit(update, msg, create_main_menu())
 
 
-async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_help(update, context):
     msg = (
         "╔════════════════════════════════╗\n"
         "║  📖 PANDUAN LENGKAP 📖        ║\n"
@@ -552,7 +535,7 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/alias \\- → Hapus alias\n"
         "/cmd → Bantuan \\(ini\\)\n"
         "/help → Bantuan \\(sama\\)\n\n"
-        "👨💼 Hanya admin yang bisa gunakan command kelola\\!"
+        "👨‍💼 Hanya admin yang bisa gunakan command kelola\\!"
     )
     await send_or_edit(update, msg, create_help_menu())
 
@@ -561,18 +544,12 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # COMMAND TAMBAHAN: /del, /cancel, /alias
 # ============================================================
 
-async def handle_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Hapus bet user tertentu. Admin only.
-    Cara pakai:
-      /del @username    → hapus berdasarkan username
-      /del <reply>      → hapus user yang di-reply
-    """
+async def handle_del(update, context):
     if not await require_admin(update):
         return
     cid = str(update.effective_chat.id)
     bets = get_bets(cid)
 
-    # Jika reply ke pesan user
     if update.effective_message.reply_to_message:
         target_user = update.effective_message.reply_to_message.from_user
         if target_user is None:
@@ -580,7 +557,6 @@ async def handle_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         target_id = str(target_user.id)
     else:
-        # Ambil argumen pertama (username atau ID)
         if not context.args:
             await update.effective_message.reply_text(
                 "📌 Cara pakai:\n"
@@ -589,7 +565,6 @@ async def handle_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         arg = context.args[0].lstrip("@")
-        # Cari berdasarkan username
         found_id = None
         for uid, info in bets.items():
             uname = (info.get("username") or "").lstrip("@").lower()
@@ -597,7 +572,9 @@ async def handle_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 found_id = uid
                 break
         if not found_id:
-            await update.effective_message.reply_text(f"❌ User `{arg}` tidak ditemukan di list\\.")
+            await update.effective_message.reply_text(
+                f"❌ User `{arg}` tidak ditemukan di list\\."
+            )
             return
         target_id = found_id
 
@@ -612,8 +589,7 @@ async def handle_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Member batalkan bet sendiri. Bukan admin juga bisa."""
+async def handle_cancel(update, context):
     cid = str(update.effective_chat.id)
     if not is_active(cid):
         await update.effective_message.reply_text("❌ Bot sedang mati\\.")
@@ -630,8 +606,7 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_alias(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set alias nama. Pakai: /alias <nama> atau /alias - untuk hapus."""
+async def handle_alias(update, context):
     cid = str(update.effective_chat.id)
     uid = str(update.effective_user.id)
     aliases = get_aliases(cid)
@@ -654,7 +629,6 @@ async def handle_alias(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_text("ℹ️ Kamu belum punya alias\\.")
         return
 
-    # Batasi panjang alias
     if len(arg) > 30:
         await update.effective_message.reply_text("❌ Alias maksimal 30 karakter\\.")
         return
@@ -668,7 +642,7 @@ async def handle_alias(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # CALLBACK QUERY (untuk tombol inline)
 # ============================================================
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update, context):
     if not update.callback_query:
         return
     query = update.callback_query.data
@@ -692,17 +666,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# HANDLER TEXT BET (K5, B10, 5K, 10B)
+# HANDLER TEXT BET
 # ============================================================
 
-async def handle_bet_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_bet_text(update, context):
     if not update.effective_message or not update.effective_message.text:
         return
     if not is_active(update.effective_chat.id):
         return
 
     text = update.effective_message.text.strip()
-    # Abaikan jika diawali / atau .
     if text.startswith("/") or text.startswith("."):
         return
 
@@ -733,22 +706,17 @@ async def handle_bet_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 
 async def autosave_loop():
-    """Backup otomatis setiap interval."""
     while True:
         await asyncio.sleep(AUTOSAVE_INTERVAL)
         save_data()
 
 
 # ============================================================
-# ============================================================
-# POST-INIT: Dijalankan setelah bot siap, sebelum polling
+# POST-INIT & POST-STOP
 # ============================================================
 
 async def post_init(application):
-    """Mulai autosave background task + print info bot."""
-    # Start autosave sebagai background task
     asyncio.create_task(autosave_loop())
-
     me = await application.bot.get_me()
     print("=" * 55)
     print(f"  🤖 UBOT LIST - STARTED")
@@ -763,28 +731,22 @@ async def post_init(application):
     print("=" * 55)
 
 
-# ============================================================
-# POST-STOP: Dijalankan saat bot dihentikan
-# ============================================================
-
 async def post_stop(application):
-    """Simpan data sebelum bot mati."""
     save_data()
     print("💾 Data tersimpan sebelum shutdown.")
 
 
 # ============================================================
-# MAIN: Jalankan bot dengan run_polling()
+# MAIN
 # ============================================================
 
 def main():
-    # Build application
     builder = Application.builder().token(BOT_TOKEN)
     builder.post_init(post_init)
     builder.post_stop(post_stop)
     application = builder.build()
 
-    # ===== Daftar semua command slash =====
+    # Daftar semua command slash
     application.add_handler(CommandHandler("menu", handle_menu))
     application.add_handler(CommandHandler("start", handle_menu))
     application.add_handler(CommandHandler("on", handle_on))
@@ -814,7 +776,7 @@ def main():
     print("  🚀 UBOT LIST - STARTING...")
     print("=" * 55)
 
-    # ===== Jalankan bot (run_polling handle semua lifecycle) =====
+    # run_polling handle SEMUA lifecycle otomatis
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
@@ -824,47 +786,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except KeyboardInterrupt:
-        save_data()
-        print("\n\n👋 Bot dihentikan. Data tersimpan. Sampai jumpa!")
-    except Exception as e:
-        traceback.print_exc()
-        print(f"\n❌ Error: {e}")
-
-    # Callback tombol inline
-    application.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^cmd_"))
-
-    # Pesan teks biasa → cek apakah format bet
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_bet_text)
-    )
-
-    # Jalankan autosave
-    application.job_queue.run_repeating(
-        lambda _ctx: None,  # dummy, autosave di handle_bet_text juga
-        interval=AUTOSAVE_INTERVAL,
-        first=AUTOSAVE_INTERVAL,
-    )
-
-    print("=" * 55)
-    print("  🚀 UBOT LIST - STARTING...")
-    print("=" * 55)
-
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-
-    # Background autosave
-    asyncio.create_task(autosave_loop())
-
-    await application.updater.wait_until_stopped()
-    await application.stop()
-    await application.shutdown()
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(run_bot())
     except KeyboardInterrupt:
         save_data()
         print("\n\n👋 Bot dihentikan. Data tersimpan. Sampai jumpa!")
