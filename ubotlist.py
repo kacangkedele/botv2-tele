@@ -1,6 +1,6 @@
 """
 UBOT LIST - Bot Telegram untuk mencatat taruhan K/B (Kecil/Besar)
-Semua perintah menggunakan slash command (/) — bukan titik (.)
+Semua perintah menggunakan slash command (/)
 """
 
 import json
@@ -30,7 +30,7 @@ from config import ADMIN_IDS, BOT_TOKEN, DATA_FILE, AUTOSAVE_INTERVAL
 
 
 # ============================================================
-# UTILITAS DATA (LOAD / SAVE)
+# LOAD & SAVE DATA
 # ============================================================
 
 def load_data():
@@ -541,7 +541,7 @@ async def handle_help(update, context):
 
 
 # ============================================================
-# COMMAND TAMBAHAN: /del, /cancel, /alias
+# COMMAND: /del, /cancel, /alias
 # ============================================================
 
 async def handle_del(update, context):
@@ -639,7 +639,7 @@ async def handle_alias(update, context):
 
 
 # ============================================================
-# CALLBACK QUERY (untuk tombol inline)
+# CALLBACK QUERY (tombol inline)
 # ============================================================
 
 async def handle_callback(update, context):
@@ -712,41 +712,14 @@ async def autosave_loop():
 
 
 # ============================================================
-# POST-INIT & POST-STOP
+# MAIN - Manual lifecycle (fix Python 3.14)
 # ============================================================
 
-async def post_init(application):
-    asyncio.create_task(autosave_loop())
-    me = await application.bot.get_me()
-    print("=" * 55)
-    print(f"  🤖 UBOT LIST - STARTED")
-    print(f"  👤 Bot    : @{me.username}")
-    print(f"  🆔 Bot ID : {me.id}")
-    print(f"  👑 Admin  : {ADMIN_IDS}")
-    print("=" * 55)
-    print("  📌 Perintah tersedia:")
-    print("     /menu /on /off /list /rs /rk /total")
-    print("     /perak /nonperak /status /del /cancel")
-    print("     /alias /cmd /help")
-    print("=" * 55)
+async def run_bot():
+    # Build application
+    application = Application.builder().token(BOT_TOKEN).build()
 
-
-async def post_stop(application):
-    save_data()
-    print("💾 Data tersimpan sebelum shutdown.")
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-    builder = Application.builder().token(BOT_TOKEN)
-    builder.post_init(post_init)
-    builder.post_stop(post_stop)
-    application = builder.build()
-
-    # Daftar semua command slash
+    # ===== Daftar semua command slash =====
     application.add_handler(CommandHandler("menu", handle_menu))
     application.add_handler(CommandHandler("start", handle_menu))
     application.add_handler(CommandHandler("on", handle_on))
@@ -767,7 +740,7 @@ def main():
     # Callback tombol inline
     application.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^cmd_"))
 
-    # Pesan teks biasa → cek apakah format bet
+    # Pesan teks biasa → cek format bet
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_bet_text)
     )
@@ -776,11 +749,52 @@ def main():
     print("  🚀 UBOT LIST - STARTING...")
     print("=" * 55)
 
-    # run_polling handle SEMUA lifecycle otomatis
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
-    )
+    # ===== MANUAL LIFECYCLE =====
+    await application.initialize()
+    await application.start()
+
+    if application.updater:
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Print info bot
+    me = await application.bot.get_me()
+    print("=" * 55)
+    print(f"  🤖 UBOT LIST - STARTED")
+    print(f"  👤 Bot    : @{me.username}")
+    print(f"  🆔 Bot ID : {me.id}")
+    print(f"  👑 Admin  : {ADMIN_IDS}")
+    print("=" * 55)
+    print("  📌 Perintah tersedia:")
+    print("     /menu /on /off /list /rs /rk /total")
+    print("     /perak /nonperak /status /del /cancel")
+    print("     /alias /cmd /help")
+    print("=" * 55)
+    print("  ✅ Bot berjalan... Tekan Ctrl+C untuk stop.")
+    print("=" * 55)
+
+    # Start autosave background task
+    asyncio.create_task(autosave_loop())
+
+    # Keep running forever (sampai Ctrl+C)
+    try:
+        await asyncio.Event().wait()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        pass
+    finally:
+        # Cleanup sebelum keluar
+        print("\n⏳ Menyimpan data & shutdown...")
+        save_data()
+        if application.updater:
+            await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
+        print("💾 Data tersimpan. Bot berhenti.")
+
+
+def main():
+    # asyncio.run() membuat & manage event loop dengan benar
+    # Fix untuk Python 3.14 yang tidak punya event loop default
+    asyncio.run(run_bot())
 
 
 if __name__ == "__main__":
